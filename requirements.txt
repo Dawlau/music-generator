@@ -1,0 +1,15 @@
+pandas
+python-dotenv
+pydot
+requests
+numpy
+wave
+pydub
+librosa
+soundfile
+torch
+torchaudio
+transformers
+msclap
+pydub
+accelerate
