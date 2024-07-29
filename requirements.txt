@@ -13,3 +13,4 @@ transformers
 msclap
 pydub
 accelerate
+datasets
