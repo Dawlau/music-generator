@@ -2,6 +2,119 @@ import os
 
 
 GENRES_OF_INTEREST = ["Rock", "Electronic", "Hip-Hop", "Pop"]
-FMA_DATA_PATH = os.path.join(os.environ["HOME"], "fma", "data")
-FMA_SONGS_PATH = os.path.join(os.environ["HOME"], "fma", "data", "fma_small")
+FMA_DATA_PATH = os.path.join(os.environ["HOME"], "fma")
+FMA_SONGS_PATH = os.path.join(os.environ["HOME"], "fma", "fma_small")
+SONG_DESCRIBER_DATA_PATH = os.path.join(os.environ["HOME"], "song_describer_data")
+SONG_DESCRIBER_DATA_SONGS_PATH = os.path.join(os.environ["HOME"], "song_describer_data", "audio")
 DATASET_PATH = os.path.join(os.environ["HOME"], "music-generator", "data")
+TRAINING_DATASET_PATH = os.path.join(DATASET_PATH, "train")
+VALIDATION_DATASET_PATH = os.path.join(DATASET_PATH, "validation")
+TEST_DATASET_PATH = os.path.join(DATASET_PATH, "test")
+
+MIN_SONG_DURATION = 25
+
+CAPTION_GENERATOR_NAME = "beberik/Nyxene-v2-11B"
+MAX_CAPTION_LENGTH = 250
+
+mood_theme_classes = [
+    "action",
+    "adventure",
+    "advertising",
+    "background",
+    "ballad",
+    "calm",
+    "children",
+    "christmas",
+    "commercial",
+    "cool",
+    "corporate",
+    "dark",
+    "deep",
+    "documentary",
+    "drama",
+    "dramatic",
+    "dream",
+    "emotional",
+    "energetic",
+    "epic",
+    "fast",
+    "film",
+    "fun",
+    "funny",
+    "game",
+    "groovy",
+    "happy",
+    "heavy",
+    "holiday",
+    "hopeful",
+    "inspiring",
+    "love",
+    "meditative",
+    "melancholic",
+    "melodic",
+    "motivational",
+    "movie",
+    "nature",
+    "party",
+    "positive",
+    "powerful",
+    "relaxing",
+    "retro",
+    "romantic",
+    "sad",
+    "sexy",
+    "slow",
+    "soft",
+    "soundscape",
+    "space",
+    "sport",
+    "summer",
+    "trailer",
+    "travel",
+    "upbeat",
+    "uplifting",
+]
+
+instrument_classes = [
+    "acapella",
+    "accordion",
+    "acousticbassguitar",
+    "acousticguitar",
+    "bass",
+    "beat",
+    "bell",
+    "bongo",
+    "brass",
+    "cello",
+    "clarinet",
+    "classicalguitar",
+    "computer",
+    "doublebass",
+    "drummachine",
+    "drums",
+    "electricguitar",
+    "electricpiano",
+    "flute",
+    "guitar",
+    "harmonica",
+    "harp",
+    "horn",
+    "keyboard",
+    "oboe",
+    "orchestra",
+    "organ",
+    "pad",
+    "percussion",
+    "piano",
+    "pipeorgan",
+    "rhodes",
+    "sampler",
+    "saxophone",
+    "strings",
+    "synthesizer",
+    "trombone",
+    "trumpet",
+    "viola",
+    "violin",
+    "voice",
+]
