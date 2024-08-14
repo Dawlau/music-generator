@@ -682,11 +682,11 @@ class DataSeq2SeqTrainingArguments:
         },
     )
     train_split_name: str = field(
-        default="train+validation",
+        default="train",
         metadata={
             "help": (
                 "The name of the training data set split to use (via the datasets library). Defaults to "
-                "'train+validation'"
+                "'train'"
             )
         },
     )
@@ -838,6 +838,14 @@ class DataSeq2SeqTrainingArguments:
             )
         },
     )
+    focus_genre: str = field(
+        default=None,
+        metadata={
+            "help": (
+                "if specified it will filter the training and validation datasets to only include the specified genre."
+            )
+        },
+    )
 
 
 @dataclass
@@ -914,7 +922,13 @@ def main():
         )
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    # Remove this
+    # training_args.do_eval = False
+    training_args.report_to = ["wandb"]
+    training_args.run_name = training_args.output_dir.split("/")[-1]
+    training_args.logging_steps = 1
 
+    os.environ["WANDB_PROJECT"] = "musicgen_genre_spec"
     # Detecting last checkpoint.
     last_checkpoint = None
     if (
@@ -933,7 +947,6 @@ def main():
                 f"Checkpoint detected, resuming training at {last_checkpoint}. To avoid this behavior, change "
                 "the `--output_dir` or add `--overwrite_output_dir` to train from scratch."
             )
-
     # Setup logging
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -952,11 +965,10 @@ def main():
     # Set the verbosity to info of the Transformers logger (on main process only):
     if is_main_process(training_args.local_rank):
         transformers.utils.logging.set_verbosity_info()
-    logger.info("Training/evaluation parameters %s", training_args)
 
+    # logger.info("Training/evaluation parameters %s", training_args)
     # Set seed before initializing model.
     set_seed(training_args.seed)
-
     # 1. First, let's load the dataset
     raw_datasets = DatasetDict()
     num_workers = data_args.preprocessing_num_workers
@@ -994,6 +1006,12 @@ def main():
             )
         elif data_args.text_column_name is None and data_args.instance_prompt is None:
             raise ValueError("--instance_prompt or --text_column_name must be set.")
+        
+        if data_args.focus_genre is not None:
+            raw_datasets["train"] = raw_datasets["train"].filter(
+                lambda x: data_args.focus_genre in x["genre"]
+            )
+
 
         if data_args.max_train_samples is not None:
             raw_datasets["train"] = (
@@ -1010,10 +1028,16 @@ def main():
             num_proc=num_workers,
         )
 
+        if data_args.focus_genre is not None:
+            raw_datasets["eval"] = raw_datasets["eval"].filter(
+                lambda x: data_args.focus_genre in x["genre"]
+            )
+
         if data_args.max_eval_samples is not None:
             raw_datasets["eval"] = raw_datasets["eval"].select(
                 range(data_args.max_eval_samples)
             )
+        
 
     if data_args.audio_separation:
         try:
@@ -1194,7 +1218,6 @@ def main():
             else model.config.decoder.decoder_start_token_id,
         }
     )
-
     # 4. Now we can instantiate the processor and model
     # Note for distributed training, the .from_pretrained methods guarantee that only
     # one local process can concurrently download model & vocab.
@@ -1231,7 +1254,6 @@ def main():
     audio_encoder_feature_extractor = AutoFeatureExtractor.from_pretrained(
         model.config.audio_encoder._name_or_path,
     )
-
     # 5. Now we preprocess the datasets including loading the audio, resampling and normalization
     # Thankfully, `datasets` takes care of automatically loading and resampling the audio,
     # so that we just need to set the correct target sampling rate and normalize the input
@@ -1265,15 +1287,7 @@ def main():
                 ),
             )
 
-    # derive max & min input length for sample rate & max duration
-    max_target_length = (
-        data_args.max_duration_in_seconds
-        * audio_encoder_feature_extractor.sampling_rate
-    )
-    min_target_length = (
-        data_args.min_duration_in_seconds
-        * audio_encoder_feature_extractor.sampling_rate
-    )
+
     target_audio_column_name = data_args.target_audio_column_name
     conditional_audio_column_name = data_args.conditional_audio_column_name
     text_column_name = data_args.text_column_name
@@ -1318,8 +1332,6 @@ def main():
         )
         batch["labels"] = labels["input_values"]
 
-        # take length of raw audio waveform
-        batch["target_length"] = len(target_sample["array"].squeeze())
         return batch
 
     with training_args.main_process_first(desc="dataset map preprocessing"):
@@ -1330,15 +1342,6 @@ def main():
             desc="preprocess datasets",
         )
 
-        def is_audio_in_length_range(length):
-            return length > min_target_length and length < max_target_length
-
-        # filter data that is shorter than min_target_length
-        vectorized_datasets = vectorized_datasets.filter(
-            is_audio_in_length_range,
-            num_proc=num_workers,
-            input_columns=["target_length"],
-        )
 
     audio_decoder = model.audio_encoder
 
@@ -1665,14 +1668,6 @@ def main():
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
         metrics = trainer.evaluate()
-        max_eval_samples = (
-            data_args.max_eval_samples
-            if data_args.max_eval_samples is not None
-            else len(vectorized_datasets["eval"])
-        )
-        metrics["eval_samples"] = min(
-            max_eval_samples, len(vectorized_datasets["eval"])
-        )
 
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
