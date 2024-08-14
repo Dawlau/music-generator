@@ -15,10 +15,11 @@ def make_args():
     parser.add_argument("--fma_songs_path", type=str, default=config.FMA_SONGS_PATH)
     parser.add_argument("--train_dataset_path", type=str, default=config.TRAINING_DATASET_PATH)
     parser.add_argument("--genres_of_interest", type=list_of_str, default=config.GENRES_OF_INTEREST)
-    parser.add_argument("--compute_songs_features", type=bool, default=True)
-    parser.add_argument("--move_songs_files", type=bool, default=True)
-    parser.add_argument("--generate_clap_features", type=bool, default=True)
-    parser.add_argument("--build_dataset", type=bool, default=True)
+    parser.add_argument("--compute_songs_features", type=bool, action=argparse.BooleanOptionalAction)
+    parser.add_argument("--move_songs_files", type=bool, action=argparse.BooleanOptionalAction)
+    parser.add_argument("--generate_clap_features", type=bool, action=argparse.BooleanOptionalAction)
+    parser.add_argument("--build_dataset", type=bool, action=argparse.BooleanOptionalAction)
+    parser.add_argument("--num_songs_per_genre", type=int, default=config.FMA_NUM_SONGS_PER_GENRE)
 
     args = parser.parse_args()
 
@@ -40,8 +41,11 @@ def main():
         args.fma_songs_path,
         args.train_dataset_path,
         args.genres_of_interest,
-        args.generate_clap_features
+        args.generate_clap_features,
+        args.num_songs_per_genre
     )
+
+    fma_parser.get_song_ids_in_split()
 
     if args.compute_songs_features:
         fma_parser.compute_songs_features()
