@@ -1,7 +1,7 @@
 import os
 
 
-GENRES_OF_INTEREST = ["Rock", "Electronic", "Hip-Hop", "Pop"]
+GENRES_OF_INTEREST = ["Hip-Hop", "Pop", "Rock", "Electronic"]
 FMA_DATA_PATH = os.path.join(os.environ["HOME"], "fma")
 FMA_SONGS_PATH = os.path.join(os.environ["HOME"], "fma", "fma_small")
 SONG_DESCRIBER_DATA_PATH = os.path.join(os.environ["HOME"], "song_describer_data")
@@ -15,6 +15,8 @@ MIN_SONG_DURATION = 25
 
 CAPTION_GENERATOR_NAME = "beberik/Nyxene-v2-11B"
 MAX_CAPTION_LENGTH = 250
+
+FMA_NUM_SONGS_PER_GENRE = 1
 
 mood_theme_classes = [
     "action",
