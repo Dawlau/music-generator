@@ -14,3 +14,9 @@ msclap
 pydub
 accelerate
 datasets
+mutagen
+peft
+wandb
+datasets[audio]
+ffmpeg
+yt-dlp
