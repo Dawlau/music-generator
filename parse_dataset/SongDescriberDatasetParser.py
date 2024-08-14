@@ -59,7 +59,7 @@ class SongDescriberDatasetParser:
                     trimmed_filename = ".".join(file.split("/")[-1].replace(".mp3", ".wav").split(".")[::2])
                     
                     wav_file = os.path.join(self.validation_dataset_path, trimmed_filename)
-                    cmd = f"ffmpeg -i {file} {wav_file} -y"
+                    cmd = f"ffmpeg -ss 00:00:00 -t 00:00:30 -i {file} {wav_file} -y"
                     os.system(cmd)
 
 
@@ -79,4 +79,4 @@ class SongDescriberDatasetParser:
         train_dataset = DatasetDict.load_from_disk(os.path.join(self.dataset_path, "hf_dataset"))
         dataset["train"] = train_dataset["train"]
 
-        dataset.save_to_disk(os.path.join(self.validation_dataset_path, "hf_dataset"))
+        dataset.push_to_hub("AndreiBlahovici/music_dataset")
