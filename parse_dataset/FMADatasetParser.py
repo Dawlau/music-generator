@@ -7,22 +7,37 @@ import numpy as np
 from msclap import CLAP
 import librosa
 import config
-from pathos.multiprocessing import ProcessingPool as Pool
 from datasets import DatasetDict
 from datasets import Audio
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from mutagen.mp3 import MP3
+
 
 
 class FMADatasetParser:
-    def __init__(self, dataset_path, fma_data_path, fma_songs_path, train_dataset_path, genres_of_interest, generate_clap_features):
+    def __init__(self, dataset_path, fma_data_path, fma_songs_path, train_dataset_path, genres_of_interest, generate_clap_features, num_songs_per_genre):
         self.dataset_path = dataset_path
         self.fma_data_path = fma_data_path
         self.fma_songs_path = fma_songs_path
         self.train_dataset_path = train_dataset_path
         self.genres_of_interest = genres_of_interest
+        self.num_songs_per_genre = num_songs_per_genre
+        self.valid_song_ids = set()
 
         if generate_clap_features:
             self.clap_model = CLAP(version="2023", use_cuda=True)
+
+
+    def get_song_ids_in_split(self):
+        for current_dir in os.walk(self.fma_songs_path):
+            if len(current_dir[1]) == 0:
+                files = [os.path.join(current_dir[0], file) for file in current_dir[2] if file.endswith(".mp3")]
+
+                for file in files:
+                    audio = MP3(file)
+                    # some files are corrupted so we remove them
+                    if audio.info.length > config.MIN_SONG_DURATION:
+                            self.valid_song_ids.add(int(file.split("/")[-1].split(".")[0]))
 
 
     def compute_songs_features(self):
@@ -42,14 +57,31 @@ class FMADatasetParser:
 
         # Load tracks info and filter by genres of interest
         tracks_info = utils.load(os.path.join(self.fma_data_path, "fma_metadata", "tracks.csv"))
-        tracks_info = tracks_info[tracks_info["track"]["genre_top"].notna()]
-        tracks_info = tracks_info[tracks_info["track"]["genre_top"].isin(self.genres_of_interest)]
+        tracks_genres = pd.DataFrame({
+            "track_id": tracks_info.index,
+            "genre_top": tracks_info["track"]["genre_top"]
+        })
+        tracks_genres = tracks_genres.reset_index(drop=True)
+
+        tracks_genres = tracks_genres.dropna(axis=0, how="any", subset=["genre_top"])
+
+        mask = tracks_genres["genre_top"].isin(self.genres_of_interest)
+        tracks_genres = tracks_genres[mask]
+        tracks_genres["genre_top"] = tracks_genres["genre_top"].cat.remove_unused_categories()
+        tracks_genres = tracks_genres.reset_index(drop=True)
 
         # Create tracks genres dataframe and merge with features dataframe
-        tracks_genres = tracks_info["track"]["genre_top"].to_frame()
-        tracks_genres = tracks_genres.reset_index()
-        tracks_genres = tracks_genres.sort_values(by="track_id")
         features = features.merge(tracks_genres, on="track_id")
+        features = features.reset_index(drop=True)
+
+        # Filter songs that are not in the split
+        features = features[features["track_id"].isin(self.valid_song_ids)]
+
+        # Balance dataset based on genre
+        min_entries_per_genre = features["genre_top"].value_counts().min()
+        self.num_songs_per_genre = min(self.num_songs_per_genre, min_entries_per_genre)
+
+        features = features.groupby("genre_top").apply(lambda x: x.sample(n=self.num_songs_per_genre, replace=False)).reset_index(drop=True)
 
         # Save features to csv
         features.to_csv(os.path.join(self.train_dataset_path, "songs_features.csv"), index=False)
@@ -72,12 +104,14 @@ class FMADatasetParser:
                         cmd = f"ffmpeg -i {file} {wav_file} -y"
                         os.system(cmd)
 
-                        with wave.open(wav_file, "rb") as wav:
-                            length = wav.getnframes() / wav.getframerate()
+        songs_features = songs_features[songs_features["track_id"].isin(song_ids)]
 
-                            # some files are corrupted so we remove them
-                            if length <= config.MIN_SONG_DURATION:
-                                os.remove(wav_file)
+        min_entries_per_genre = songs_features["genre_top"].value_counts().min()
+        self.num_songs_per_genre = min(self.num_songs_per_genre, min_entries_per_genre)
+
+        songs_features = songs_features.groupby("genre_top").apply(lambda x: x.sample(n=self.num_songs_per_genre, replace=False)).reset_index(drop=True)
+
+        songs_features.to_csv(os.path.join(self.train_dataset_path, "songs_features.csv"), index=False)
 
 
     def compute_instrument(self, audio_embeddings: torch.Tensor) -> str:
@@ -136,11 +170,10 @@ class FMADatasetParser:
             file_path = os.path.join(base_path, f"{str(track_id).zfill(6)}.wav")
             return os.path.exists(file_path)
 
-        self.songs_features['file_exists'] = self.songs_features['track_id'].apply(lambda x: file_exists(x, config.TRAINING_DATASET_PATH))
-        self.songs_features = self.songs_features[self.songs_features['file_exists']]
-        self.songs_features = self.songs_features.drop(columns=['file_exists'], )
+        self.songs_features["file_exists"] = self.songs_features["track_id"].apply(lambda x: file_exists(x, self.train_dataset_path))
+        self.songs_features = self.songs_features[self.songs_features["file_exists"]]
+        self.songs_features = self.songs_features.drop(columns=["file_exists"], )
 
-        self.songs_features = self.songs_features.head(5)
         self.songs_features.reset_index(inplace=True)
 
         # parallelize
@@ -150,17 +183,15 @@ class FMADatasetParser:
         self.songs_features.to_csv(os.path.join(self.train_dataset_path, "full_songs_features.csv"))
 
         del self.songs_features
+        del self.clap_model
 
     
-    def generate_caption(self, features):
+    def generate_caption(self, model, tokenizer, features):
         metadata_str = "\n".join([f"{key}: {value}" for key, value in features.items()])
         metadata_str = """
             Based on the following metadata, generate a description for the song:\n
         """ + metadata_str
-
-        model = AutoModelForCausalLM.from_pretrained(config.CAPTION_GENERATOR_NAME, device_map="auto")
-        tokenizer = AutoTokenizer.from_pretrained(config.CAPTION_GENERATOR_NAME)
-
+        
         inputs = tokenizer(metadata_str, return_tensors="pt")
         inputs = {k: v.to("cuda" if torch.cuda.is_available() else "cpu") for k, v in inputs.items()}
 
@@ -176,6 +207,9 @@ class FMADatasetParser:
 
         csv_dataset = pd.DataFrame({"audio": [], "caption": [], "genre": []})
 
+        model = AutoModelForCausalLM.from_pretrained(config.CAPTION_GENERATOR_NAME, device_map="auto")
+        tokenizer = AutoTokenizer.from_pretrained(config.CAPTION_GENERATOR_NAME)
+
         # parallelize
         for _, row in songs_features.iterrows():
             track_id = row["track_id"]
@@ -186,12 +220,10 @@ class FMADatasetParser:
             full_track_id = str(track_id).zfill(6)
 
             audio_file = os.path.join(self.train_dataset_path, f"{full_track_id}.wav")
-            caption = self.generate_caption(features)
+            caption = self.generate_caption(model, tokenizer, features)
 
             csv_dataset = pd.concat([csv_dataset, pd.DataFrame({"audio": audio_file, "caption": caption, "genre": genre}, index=[0])], ignore_index=True)
 
-            if _ == 2:
-                break
 
         csv_dataset.to_csv(os.path.join(self.train_dataset_path, "dataset.csv"), index=False)
 
